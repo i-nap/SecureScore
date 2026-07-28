@@ -1,0 +1,84 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "score": "Credit Score",
+    "loans": "Loan Applications",
+    "accounts": "My Accounts",
+    "transactions": "Transactions",
+    "statements": "Statements",
+    "kyc": "KYC Verification",
+    "profile": "Profile",
+    "logout": "Logout"
+  },
+  "score": {
+    "title": "Your Credit Score",
+    "subtitle": "Powered by federated learning — your data never leaves your branch",
+    "decision": {
+      "APPROVE": "Approved",
+      "MANUAL_REVIEW": "Under Review",
+      "REJECT": "Not Approved"
+    },
+    "tier": {
+      "LOW_RISK": "Low Risk",
+      "MEDIUM_RISK": "Medium Risk",
+      "HIGH_RISK": "High Risk",
+      "VERY_HIGH_RISK": "Very High Risk"
+    },
+    "explanation_title": "What affects your score?",
+    "improvement_tips": "How to improve"
+  },
+  "features": {
+    "debt_to_income": "Debt-to-Income Ratio",
+    "employment_months": "Employment Duration",
+    "credit_history_months": "Credit History Length",
+    "existing_loans": "Existing Loans",
+    "collateral_value": "Collateral Value",
+    "repayment_history_score": "Repayment History",
+    "annual_income": "Annual Income",
+    "loan_amount_requested": "Loan Amount",
+    "monthly_income": "Monthly Income",
+    "monthly_emi": "Monthly EMI"
+  },
+  "loan": {
+    "apply_title": "Apply for a Loan",
+    "amount": "Loan Amount (NPR)",
+    "purpose": "Purpose",
+    "tenure": "Tenure (months)",
+    "submit": "Submit Application",
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "under_review": "Under Review"
+    }
+  },
+  "kyc": {
+    "title": "KYC Verification",
+    "subtitle": "Complete your identity verification",
+    "full_name": "Full Name",
+    "dob": "Date of Birth",
+    "nid": "National ID Number",
+    "address": "Address",
+    "submit": "Submit KYC",
+    "success": "KYC submitted successfully",
+    "face_verify": "Face Verification",
+    "face_instructions": "Please look directly at the camera"
+  },
+  "errors": {
+    "loading": "Failed to load data. Please try again.",
+    "network": "Network error — check your connection.",
+    "auth": "Session expired. Please log in again.",
+    "server": "Server error. Our team has been notified."
+  },
+  "common": {
+    "loading": "Loading…",
+    "no_data": "No data available.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "view_details": "View Details",
+    "language": "Language"
+  }
+}
