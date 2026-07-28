@@ -1,0 +1,91 @@
+groups:
+  - name: securescore_federated_learning
+    interval: 30s
+    rules:
+
+      # ── Federated Round Stalled ───────────────────────────
+      - alert: FederatedRoundStalled
+        expr: |
+          time() - securescore_last_aggregation_timestamp > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Federated round has not completed in 10 minutes"
+          description: "Last aggregation was {{ $value | humanizeDuration }} ago. Check if branches are submitting."
+
+      # ── Byzantine Quarantine Spike ─────────────────────────
+      - alert: ByzantineQuarantineSpike
+        expr: |
+          increase(securescore_byzantine_rejections_total[10m]) > 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Multiple Byzantine rejections detected"
+          description: "{{ $value }} branches quarantined in last 10 minutes. Possible coordinated attack."
+
+      # ── HQ Server Down ────────────────────────────────────
+      - alert: HQServerDown
+        expr: up{job="hq-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HQ Aggregation Server is unreachable"
+          description: "Prometheus cannot scrape HQ server metrics."
+
+      # ── BFF Gateway Down ─────────────────────────────────
+      - alert: BFFGatewayDown
+        expr: up{job="bff-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "BFF Gateway is unreachable"
+          description: "Frontend will be unable to serve customers."
+
+      # ── High Error Rate ───────────────────────────────────
+      - alert: HighAPIErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) /
+          rate(http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API error rate above 5%"
+          description: "Service {{ $labels.job }} has {{ $value | humanizePercentage }} error rate."
+
+      # ── Slow Aggregation ─────────────────────────────────
+      - alert: SlowAggregation
+        expr: |
+          securescore_aggregation_duration_seconds > 30
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FedAvg aggregation taking longer than 30 seconds"
+          description: "Aggregation took {{ $value }}s. Check for model size issues."
+
+      # ── Low Branch Participation ──────────────────────────
+      - alert: LowBranchParticipation
+        expr: |
+          securescore_active_branches_count < 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 3 branches participating in federation"
+          description: "Only {{ $value }} branches active. Minimum for aggregation not met."
+
+      # ── Database Connection Pool Exhausted ─────────────────
+      - alert: DBConnectionPoolExhausted
+        expr: |
+          pg_stat_activity_count > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection pool near exhaustion"
+          description: "{{ $value }} active DB connections."

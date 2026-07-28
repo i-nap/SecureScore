@@ -1,0 +1,279 @@
+# ═══════════════════════════════════════════════════════════
+#  SecureScore Helm Chart — Default Values
+#  Override with: helm install securescore ./helm/securescore -f custom-values.yaml
+# ═══════════════════════════════════════════════════════════
+
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets: []
+  storageClass: ""
+
+# ── HQ Aggregation Server ───────────────────────────────
+hqServer:
+  enabled: true
+  image:
+    repository: ghcr.io/securescore/bank-suite/hq-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 5050
+  args:
+    - "--port"
+    - "5050"
+    - "--min-nodes"
+    - "3"
+    - "--round-interval"
+    - "60"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    fsGroup: 10001
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  env: {}
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: 5050
+    initialDelaySeconds: 15
+    periodSeconds: 30
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: 5050
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+# ── BFF Gateway ─────────────────────────────────────────
+bffGateway:
+  enabled: true
+  image:
+    repository: ghcr.io/securescore/bank-suite/bff-gateway
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  replicaCount: 2  # HA: 2 replicas for frontend gateway
+  port: 4000
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: bff-gateway
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+# ── Edge Nodes ──────────────────────────────────────────
+edgeNodes:
+  enabled: true
+  image:
+    repository: ghcr.io/securescore/bank-suite/edge-node
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  branches:
+    - name: kathmandu
+      type: urban
+      port: 7050
+    - name: lalitpur
+      type: urban
+      port: 7051
+    - name: pokhara
+      type: urban
+      port: 7257
+    - name: bharatpur
+      type: semi_urban
+      port: 7052
+    - name: biratnagar
+      type: semi_urban
+      port: 7053
+    - name: butwal
+      type: semi_urban
+      port: 7054
+    - name: hetauda
+      type: semi_urban
+      port: 7055
+    - name: itahari
+      type: semi_urban
+      port: 7056
+    - name: dharan
+      type: semi_urban
+      port: 7057
+    - name: janakpur
+      type: rural
+      port: 7058
+    - name: birgunj
+      type: rural
+      port: 7059
+    - name: nepalgunj
+      type: rural
+      port: 7060
+    - name: sarlahi
+      type: rural
+      port: 7115
+  resources:
+    requests:
+      cpu: 300m
+      memory: 512Mi
+    limits:
+      cpu: 1500m
+      memory: 2Gi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+# ── Frontend ────────────────────────────────────────────
+frontend:
+  enabled: true
+  image:
+    repository: ghcr.io/securescore/bank-suite/frontend
+    tag: "latest"
+  replicaCount: 2
+  port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ── PostgreSQL ──────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    username: securescore
+    database: securescore
+    existingSecret: securescore-db-secret
+    secretKeys:
+      userPasswordKey: POSTGRES_PASSWORD
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+# ── Prometheus ──────────────────────────────────────────
+prometheus:
+  enabled: true
+  server:
+    retention: "30d"
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+
+# ── Grafana ─────────────────────────────────────────────
+grafana:
+  enabled: true
+  adminPassword: ""  # Set via --set or Secret
+  persistence:
+    enabled: true
+    size: 5Gi
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: securescore
+          orgId: 1
+          folder: SecureScore
+          type: file
+          options:
+            path: /var/lib/grafana/dashboards/securescore
+
+# ── Ingress ─────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: securescore.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 3000
+        - path: /api
+          pathType: Prefix
+          service: bff-gateway
+          port: 4000
+  tls:
+    - secretName: securescore-tls
+      hosts:
+        - securescore.example.com
+
+# ── Secrets (reference existing K8s Secrets or provide values) ─────────────
+secrets:
+  existingSecret: ""  # set to an existing K8s Secret name to use it
+  # Values below are ONLY used when externalSecrets.enabled=false AND existingSecret=""
+  # NEVER commit real secret values here — use --set or external-secrets-operator
+  bffSecretKey: ""
+  hqSecretKey: ""
+  hqBranchApiKey: ""
+  webhookSecret: ""
+  groqApiKey: ""
+
+# ── External Secrets Operator ───────────────────────────────────────────────
+externalSecrets:
+  enabled: false  # set true when external-secrets-operator is installed
+  secretStoreName: vault-backend
+  vaultPath: securescore
+
+# ── Persistence ─────────────────────────────────────────────────────────────
+persistence:
+  storageClass: ""          # use cluster default
+  auditStorageClass: ""     # set to a Retain-policy StorageClass in production
+  hqStateSize: "10Gi"
+  auditChainSize: "5Gi"
+
+# ── Network Policies ────────────────────────────────────────────────────────
+networkPolicies:
+  enabled: true  # set false only in dev clusters that don't support NetworkPolicy

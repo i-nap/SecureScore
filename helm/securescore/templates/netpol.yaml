@@ -1,0 +1,111 @@
+---
+# Only BFF pods can reach HQ on port 5050
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "securescore.fullname" . }}-hq-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: hq-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "securescore.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: bff-gateway
+      ports:
+        - protocol: TCP
+          port: 5050
+---
+# Only HQ pods can reach edge nodes on ports 7050-7257
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "securescore.fullname" . }}-edge-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: edge-node
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "securescore.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: hq-server
+      ports:
+        - protocol: TCP
+          port: 7050
+        - protocol: TCP
+          port: 7115
+        - protocol: TCP
+          port: 7257
+---
+# Only BFF and HQ pods can reach PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "securescore.fullname" . }}-postgres-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "securescore.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: hq-server
+        - podSelector:
+            matchLabels:
+              {{- include "securescore.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: bff-gateway
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Frontend pod: only egress to BFF on port 4000
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "securescore.fullname" . }}-frontend-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "securescore.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: bff-gateway
+      ports:
+        - protocol: TCP
+          port: 4000
+    # Allow DNS resolution
+    - ports:
+        - protocol: UDP
+          port: 53

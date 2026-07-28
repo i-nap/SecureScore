@@ -1,0 +1,64 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: securescore
+    environment: production
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  # ── HQ Aggregation Server ────────────────────────────────
+  - job_name: hq-server
+    static_configs:
+      - targets: ["hq-server:5050"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # ── BFF Gateway ─────────────────────────────────────────
+  - job_name: bff-gateway
+    static_configs:
+      - targets: ["bff-gateway:4000"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # ── Edge Nodes ───────────────────────────────────────────
+  - job_name: edge-kathmandu
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["edge-kathmandu:7050"]
+        labels:
+          branch: kathmandu
+          branch_type: urban
+
+  - job_name: edge-pokhara
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["edge-pokhara:7257"]
+        labels:
+          branch: pokhara
+          branch_type: urban
+
+  - job_name: edge-sarlahi
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["edge-sarlahi:7115"]
+        labels:
+          branch: sarlahi
+          branch_type: rural
+
+  # ── PostgreSQL Exporter ──────────────────────────────────
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # ── Prometheus self-monitoring ───────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

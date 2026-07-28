@@ -1,0 +1,30 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "securescore.fullname" . }}-bff-pdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bff-gateway
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: bff-gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "securescore.fullname" . }}-hq-pdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hq-server
+spec:
+  # HQ is the stateful FL coordinator — never allow 0 replicas during disruption
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: hq-server

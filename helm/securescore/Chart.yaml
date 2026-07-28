@@ -1,0 +1,32 @@
+apiVersion: v2
+name: securescore
+description: |
+  SecureScore Bank Suite — Privacy-Preserving Federated Learning for Credit Scoring.
+  Deploys the full system: HQ server, BFF gateway, edge nodes, monitoring stack.
+type: application
+version: 1.0.0
+appVersion: "3.0.0"
+keywords:
+  - federated-learning
+  - credit-scoring
+  - xgboost
+  - privacy
+  - banking
+  - nepal
+home: https://github.com/securescore/bank-suite
+maintainers:
+  - name: SecureScore Team
+    email: team@securescore.np
+dependencies:
+  - name: postgresql
+    version: "14.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: prometheus
+    version: "25.x.x"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus.enabled
+  - name: grafana
+    version: "7.x.x"
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled

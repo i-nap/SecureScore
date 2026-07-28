@@ -1,0 +1,120 @@
+{{- if .Values.hqServer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "securescore.fullname" . }}-hq
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hq-server
+spec:
+  replicas: {{ .Values.hqServer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: hq-server
+  template:
+    metadata:
+      labels:
+        {{- include "securescore.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: hq-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.hqServer.port }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        {{- toYaml .Values.hqServer.podSecurityContext | nindent 8 }}
+      containers:
+        - name: hq-server
+          image: "{{ .Values.hqServer.image.repository }}:{{ .Values.hqServer.image.tag }}"
+          imagePullPolicy: {{ .Values.hqServer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.hqServer.port }}
+              protocol: TCP
+          args:
+            {{- toYaml .Values.hqServer.args | nindent 12 }}
+          env:
+            - name: HQ_BRANCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.hqBranchApiKey }}
+            - name: HQ_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.hqSecretKey }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: DATABASE_URL
+                  optional: true
+          livenessProbe:
+            {{- toYaml .Values.hqServer.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.hqServer.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.hqServer.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.hqServer.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: hq-state
+              mountPath: /app/hq_state
+            - name: certs
+              mountPath: /app/certs
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: hq-state
+          persistentVolumeClaim:
+            claimName: {{ include "securescore.fullname" . }}-hq-state
+        - name: certs
+          secret:
+            secretName: {{ include "securescore.fullname" . }}-mtls-certs
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "securescore.fullname" . }}-hq
+  labels:
+    {{- include "securescore.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hq-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.hqServer.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "securescore.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: hq-server
+---
+{{- if .Values.hqServer.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "securescore.fullname" . }}-hq
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "securescore.fullname" . }}-hq
+  minReplicas: {{ .Values.hqServer.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.hqServer.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hqServer.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

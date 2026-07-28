@@ -1,0 +1,114 @@
+{{- if .Values.edgeNodes.enabled }}
+{{- range .Values.edgeNodes.branches }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "securescore.fullname" $ }}-edge-{{ .name }}
+  labels:
+    {{- include "securescore.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: edge-node
+    securescore/branch: {{ .name }}
+    securescore/branch-type: {{ .type }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "securescore.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: edge-node
+      securescore/branch: {{ .name }}
+  template:
+    metadata:
+      labels:
+        {{- include "securescore.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: edge-node
+        securescore/branch: {{ .name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .port }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        {{- toYaml $.Values.edgeNodes.podSecurityContext | nindent 8 }}
+      containers:
+        - name: edge-node
+          image: "{{ $.Values.edgeNodes.image.repository }}:{{ $.Values.edgeNodes.image.tag }}"
+          imagePullPolicy: {{ $.Values.edgeNodes.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .port }}
+              protocol: TCP
+          env:
+            - name: BRANCH_NAME
+              value: {{ .name | title }}
+            - name: HQ_URL
+              value: "http://{{ include "securescore.fullname" $ }}-hq:{{ $.Values.hqServer.port }}"
+            - name: EDGE_PORT
+              value: "{{ .port }}"
+            - name: HQ_BRANCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secrets.existingSecret }}
+                  key: {{ $.Values.secrets.keys.hqBranchApiKey }}
+          resources:
+            {{- toYaml $.Values.edgeNodes.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.edgeNodes.securityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: edge-state
+              mountPath: /app/edge_state
+            - name: data
+              mountPath: /app/generated_data
+              readOnly: true
+            - name: certs
+              mountPath: /app/certs
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: edge-state
+          persistentVolumeClaim:
+            claimName: {{ include "securescore.fullname" $ }}-edge-{{ .name }}-state
+        - name: data
+          configMap:
+            name: {{ include "securescore.fullname" $ }}-edge-{{ .name }}-data
+        - name: certs
+          secret:
+            secretName: {{ include "securescore.fullname" $ }}-mtls-certs
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "securescore.fullname" $ }}-edge-{{ .name }}
+  labels:
+    {{- include "securescore.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: edge-node
+    securescore/branch: {{ .name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "securescore.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: edge-node
+    securescore/branch: {{ .name }}
+{{- end }}
+{{- end }}
