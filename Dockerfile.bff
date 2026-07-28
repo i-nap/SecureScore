@@ -1,0 +1,53 @@
+# ═══════════════════════════════════════════════════════════
+#   SecureScore BFF Gateway — Backend-for-Frontend (Docker)
+#   Go implementation (go_bff/) — replaces the legacy Python BFF.
+#   Security-hardened: non-root, read-only FS, no-new-privileges
+# ═══════════════════════════════════════════════════════════
+#
+# Build:
+#   docker build -t securescore-bff -f Dockerfile.bff .
+#
+# Run:
+#   docker run -p 4000:4000 \
+#     --env-file .env \
+#     -e HQ_URL=http://hq-server:5050 \
+#     securescore-bff
+# ═══════════════════════════════════════════════════════════
+
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /src
+COPY go_bff/go.mod go_bff/go.sum ./
+RUN go mod download
+COPY go_bff/*.go ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /bff_gateway .
+
+FROM debian:bookworm-slim
+
+LABEL maintainer="SecureScore Team"
+LABEL description="BFF API Gateway (Go) — routes frontend requests to edge nodes and HQ"
+LABEL version="2.0.0"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /bff_gateway /app/bff_gateway
+COPY .env.example .
+
+# ── Security: non-root user ──────────────────────────────
+RUN groupadd -r securescore && \
+    useradd -r -g securescore -d /app -s /usr/sbin/nologin securescore && \
+    mkdir -p /tmp/bff /app/data && \
+    chown -R securescore:securescore /app /tmp/bff
+
+USER securescore
+
+EXPOSE 4000
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -fs http://localhost:4000/api/health || exit 1
+
+ENTRYPOINT ["/app/bff_gateway"]
