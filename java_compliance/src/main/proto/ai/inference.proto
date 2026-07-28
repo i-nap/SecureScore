@@ -1,0 +1,57 @@
+syntax = "proto3";
+package ai.inference.v1;
+option java_package = "ai.inference.v1";
+option java_multiple_files = true;
+option go_package = "github.com/securescore/banking/internal/grpc/ai;ai";
+import "google/protobuf/timestamp.proto";
+
+service InferenceService {
+  rpc ScoreTransaction(ScoreTransactionRequest) returns (ScoreTransactionResponse);
+  rpc ScoreAccount(ScoreAccountRequest) returns (ScoreAccountResponse);
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message ScoreTransactionRequest {
+  string transaction_id = 1;
+  string account_id = 2;
+  string customer_id = 3;
+  string transaction_type = 4;
+  string amount = 5;
+  string currency = 6;
+  string channel = 7;
+  string ip_address = 8;
+  google.protobuf.Timestamp timestamp = 9;
+  map<string, string> features = 10;
+}
+
+message ScoreTransactionResponse {
+  string transaction_id = 1;
+  double fraud_score = 2;
+  double anomaly_score = 3;
+  string risk_level = 4;
+  bool flag_for_review = 5;
+  bool block_transaction = 6;
+  repeated string risk_factors = 7;
+  string model_version = 8;
+  google.protobuf.Timestamp scored_at = 9;
+}
+
+message ScoreAccountRequest {
+  string customer_id = 1;
+  string account_id = 2;
+  int32 lookback_days = 3;
+}
+
+message ScoreAccountResponse {
+  string account_id = 1;
+  double risk_score = 2;
+  string risk_category = 3;
+  google.protobuf.Timestamp scored_at = 4;
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  string status = 1;
+  string model_version = 2;
+  google.protobuf.Timestamp checked_at = 3;
+}

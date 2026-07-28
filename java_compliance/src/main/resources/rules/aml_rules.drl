@@ -1,0 +1,114 @@
+package com.securescore.compliance.rules;
+
+import com.securescore.compliance.domain.TransactionFact;
+import com.securescore.compliance.domain.Decision;
+import java.math.BigDecimal;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NRB AML Rules — Nepal Rastra Bank Anti-Money Laundering Guidelines
+// Priority: higher number fires first. Rules mutate TransactionFact in place.
+// ─────────────────────────────────────────────────────────────────────────────
+
+rule "NRB-AML-01: Large Cash Transaction — mandatory STR"
+    salience 100
+when
+    $t: TransactionFact(
+        amount != null,
+        amount.compareTo(new BigDecimal("1000000")) > 0,
+        channel != null,
+        (channel == "cash" || channel == "teller")
+    )
+then
+    $t.setDecision(Decision.REQUIRES_STR);
+    $t.setRegulatoryCode("NRB-AML-01");
+    $t.setRequiresSTR(true);
+    $t.setDecisionReason("Cash transaction exceeds NPR 10,00,000 — NRB STR filing mandatory");
+end
+
+rule "NRB-AML-02: Structuring Pattern — multiple sub-threshold transactions"
+    salience 90
+when
+    $t: TransactionFact(
+        amount != null,
+        amount.compareTo(new BigDecimal("100000")) > 0,
+        amount.compareTo(new BigDecimal("900000")) < 0,
+        anomalyScore > 0.70,
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("NRB-AML-02");
+    $t.setDecisionReason("Possible structuring: sub-threshold amount with high anomaly score");
+end
+
+rule "NRB-AML-03: Cross-Border High Value — enhanced due diligence"
+    salience 85
+when
+    $t: TransactionFact(
+        amount != null,
+        amount.compareTo(new BigDecimal("500000")) > 0,
+        channel != null,
+        (channel == "SWIFT" || channel == "neft" || channel == "rtgs"),
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("NRB-AML-03");
+    $t.setDecisionReason("Cross-border transfer exceeds NPR 5,00,000 — enhanced due diligence required");
+end
+
+rule "NRB-AML-04: High ML Fraud Score — flag for review"
+    salience 80
+when
+    $t: TransactionFact(
+        fraudScore > 0.75,
+        fraudScore <= 0.90,
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("NRB-AML-04");
+    $t.setDecisionReason("ML fraud score " + $t.getFraudScore() + " exceeds flag threshold 0.75");
+end
+
+rule "NRB-AML-05: Critical ML Fraud Score — block transaction"
+    salience 95
+when
+    $t: TransactionFact(
+        fraudScore > 0.90
+    )
+then
+    $t.setDecision(Decision.BLOCK);
+    $t.setRegulatoryCode("NRB-AML-05");
+    $t.setDecisionReason("ML fraud score " + $t.getFraudScore() + " exceeds block threshold 0.90 — transaction blocked");
+end
+
+rule "NRB-AML-06: Cross-Border High Value with Elevated Fraud Risk — block and STR"
+    salience 98
+when
+    $t: TransactionFact(
+        amount != null,
+        amount.compareTo(new BigDecimal("500000")) > 0,
+        channel != null,
+        (channel == "SWIFT" || channel == "neft" || channel == "rtgs"),
+        fraudScore > 0.60
+    )
+then
+    $t.setDecision(Decision.BLOCK);
+    $t.setRegulatoryCode("NRB-AML-06");
+    $t.setRequiresSTR(true);
+    $t.setDecisionReason("Cross-border transfer > NPR 5,00,000 with fraud score " + $t.getFraudScore() + " — blocked, STR required");
+end
+
+rule "NRB-AML-07: Critical Anomaly Score — flag for review"
+    salience 75
+when
+    $t: TransactionFact(
+        anomalyScore > 0.85,
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("NRB-AML-07");
+    $t.setDecisionReason("Anomaly score " + $t.getAnomalyScore() + " indicates unusual transaction pattern");
+end

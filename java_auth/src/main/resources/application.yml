@@ -1,0 +1,76 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: securescore-auth
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/securescore_auth}
+    username: ${SPRING_DATASOURCE_USERNAME:auth_svc}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:changeme_redis}
+      database: ${REDIS_TOKEN_REVOCATION_DB:1}
+      connect-timeout: 2s
+      timeout: 1s
+
+# JWT — RS256 with PEM key files (same keys used by Go auth service)
+auth:
+  jwt:
+    private-key-path: ${JWT_PRIVATE_KEY_PATH:/secrets/jwt_private.pem}
+    public-key-path: ${JWT_PUBLIC_KEY_PATH:/secrets/jwt_public.pem}
+    issuer: ${JWT_ISSUER:securescore-auth}
+    audience: ${JWT_AUDIENCE:securescore-api}
+    access-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:900}
+    refresh-ttl-seconds: ${JWT_REFRESH_TTL_SECONDS:604800}
+
+  argon2:
+    memory: ${ARGON2_MEMORY:65536}
+    iterations: ${ARGON2_ITERATIONS:3}
+    parallelism: ${ARGON2_PARALLELISM:4}
+    salt-length: ${ARGON2_SALT_LENGTH:16}
+    key-length: ${ARGON2_KEY_LENGTH:32}
+
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:4000,http://127.0.0.1:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.securescore.auth: INFO
+    org.springframework: WARN
+    org.hibernate.SQL: WARN

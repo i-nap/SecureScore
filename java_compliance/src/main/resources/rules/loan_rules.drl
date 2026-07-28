@@ -1,0 +1,79 @@
+package com.securescore.compliance.rules;
+
+import com.securescore.compliance.domain.LoanFact;
+import com.securescore.compliance.domain.Decision;
+import java.math.BigDecimal;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NRB Loan Compliance Rules
+// Covers NPA classification, credit risk thresholds, high-value loan monitoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+rule "NRB-LOAN-01: High Credit Risk Score — flag loan for review"
+    salience 80
+when
+    $l: LoanFact(
+        creditRiskScore > 0.65,
+        creditRiskScore <= 0.85,
+        (toStatus == "approved" || toStatus == "disbursed"),
+        decision == Decision.ALLOW
+    )
+then
+    $l.setDecision(Decision.FLAG_FOR_REVIEW);
+    $l.setRegulatoryCode("NRB-LOAN-01");
+    $l.setDecisionReason("Credit risk score " + $l.getCreditRiskScore() + " warrants senior review before disbursement");
+end
+
+rule "NRB-LOAN-02: Critical Credit Risk — block disbursement"
+    salience 95
+when
+    $l: LoanFact(
+        creditRiskScore > 0.85,
+        toStatus == "disbursed"
+    )
+then
+    $l.setDecision(Decision.BLOCK);
+    $l.setRegulatoryCode("NRB-LOAN-02");
+    $l.setDecisionReason("Credit risk score " + $l.getCreditRiskScore() + " exceeds NRB safe lending threshold — disbursement blocked");
+end
+
+rule "NRB-LOAN-03: NPA Transition — mandatory enhanced due diligence"
+    salience 90
+when
+    $l: LoanFact(
+        toStatus == "npa"
+    )
+then
+    $l.setDecision(Decision.FLAG_FOR_REVIEW);
+    $l.setRegulatoryCode("NRB-LOAN-03");
+    $l.setRequiresEnhancedDueDiligence(true);
+    $l.setDecisionReason("Loan classified as Non-Performing Asset — NRB reporting and recovery action required");
+end
+
+rule "NRB-LOAN-04: Large Loan Approval — compliance review"
+    salience 70
+when
+    $l: LoanFact(
+        amount != null,
+        amount.compareTo(new BigDecimal("5000000")) > 0,
+        toStatus == "approved",
+        decision == Decision.ALLOW
+    )
+then
+    $l.setDecision(Decision.FLAG_FOR_REVIEW);
+    $l.setRegulatoryCode("NRB-LOAN-04");
+    $l.setDecisionReason("Loan approval > NPR 50,00,000 requires compliance officer sign-off per NRB credit policy");
+end
+
+rule "NRB-LOAN-05: Overdue Loan — flag for collection"
+    salience 75
+when
+    $l: LoanFact(
+        toStatus == "overdue",
+        decision == Decision.ALLOW
+    )
+then
+    $l.setDecision(Decision.FLAG_FOR_REVIEW);
+    $l.setRegulatoryCode("NRB-LOAN-05");
+    $l.setDecisionReason("Loan overdue — initiate recovery proceedings per NRB credit risk guidelines");
+end

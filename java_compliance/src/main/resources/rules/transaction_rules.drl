@@ -1,0 +1,68 @@
+package com.securescore.compliance.rules;
+
+import com.securescore.compliance.domain.TransactionFact;
+import com.securescore.compliance.domain.Decision;
+import java.math.BigDecimal;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// General Transaction Compliance Rules
+// Covers dormant account activity, high-value transfers, velocity checks
+// ─────────────────────────────────────────────────────────────────────────────
+
+rule "TXN-01: Failed Transaction with High Fraud Score — flag account"
+    salience 70
+when
+    $t: TransactionFact(
+        status == "failed",
+        fraudScore > 0.60,
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("TXN-01");
+    $t.setDecisionReason("Failed transaction with elevated fraud score " + $t.getFraudScore() + " — source account flagged for review");
+end
+
+rule "TXN-02: High-Value Internal Transfer — monitoring"
+    salience 65
+when
+    $t: TransactionFact(
+        amount != null,
+        amount.compareTo(new BigDecimal("2000000")) > 0,
+        type == "transfer",
+        channel == "web" || channel == "mobile",
+        fraudScore <= 0.75,
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("TXN-02");
+    $t.setDecisionReason("High-value digital transfer > NPR 20,00,000 — transaction monitoring alert");
+end
+
+rule "TXN-03: Loan Disbursement with Anomaly — enhanced check"
+    salience 72
+when
+    $t: TransactionFact(
+        type == "loan_disbursement",
+        anomalyScore > 0.65,
+        decision == Decision.ALLOW
+    )
+then
+    $t.setDecision(Decision.FLAG_FOR_REVIEW);
+    $t.setRegulatoryCode("TXN-03");
+    $t.setDecisionReason("Loan disbursement with anomaly score " + $t.getAnomalyScore() + " — verify disbursement account");
+end
+
+rule "TXN-04: Reversal Transaction with High Risk — block"
+    salience 88
+when
+    $t: TransactionFact(
+        type == "reversal",
+        fraudScore > 0.70
+    )
+then
+    $t.setDecision(Decision.BLOCK);
+    $t.setRegulatoryCode("TXN-04");
+    $t.setDecisionReason("Reversal transaction with fraud score " + $t.getFraudScore() + " — possible fraudulent reversal blocked");
+end

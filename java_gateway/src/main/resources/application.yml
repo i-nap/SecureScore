@@ -1,0 +1,134 @@
+server:
+  port: ${SERVER_PORT:4000}
+
+spring:
+  application:
+    name: securescore-gateway
+
+  # Redis — for rate limiting (reuses the banking stack's Redis instance)
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:changeme_redis}
+      connect-timeout: 2s
+      timeout: 1s
+
+  cloud:
+    gateway:
+      # ── Route Definitions ──────────────────────────────────────────────────
+      # Order matters: more specific paths MUST appear before catch-alls.
+      routes:
+
+        # ── 1. Auth — PUBLIC, no JWT — routes to BFF (SecureScore login/me/mfa)
+        - id: bff-auth
+          uri: ${BFF_SERVICE_URL:http://securescore-bff:4000}
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - AddRequestHeader=X-Gateway-Source, securescore-gateway
+
+        # ── 2. Java Compliance Engine — JWT required ───────────────────────
+        - id: compliance-service
+          uri: ${COMPLIANCE_SERVICE_URL:http://java-compliance:9000}
+          predicates:
+            - Path=/api/compliance/**
+          filters:
+            - AddRequestHeader=X-Gateway-Source, securescore-gateway
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # ── 3. Banking Service (Go) — JWT required ─────────────────────────
+        - id: banking-service
+          uri: ${BANKING_SERVICE_URL:http://banking-core:8082}
+          predicates:
+            - Path=/api/banking/**
+          filters:
+            - AddRequestHeader=X-Gateway-Source, securescore-gateway
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 200
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # ── 4. Webhooks — PUBLIC (edge nodes and HQ post here) ─────────────
+        - id: webhook-service
+          uri: ${BFF_SERVICE_URL:http://securescore-bff:4000}
+          predicates:
+            - Path=/api/webhook/**
+
+        # ── 5. WebSocket — Go BFF handles /ws/events ───────────────────────
+        - id: websocket
+          uri: ${BFF_WS_URL:ws://securescore-bff:4000}
+          predicates:
+            - Path=/ws/**
+
+        # ── 6. Go BFF catch-all — JWT required ─────────────────────────────
+        # HQ, branch manager, customer scoring, AI chat, federated ML, etc.
+        - id: bff-catch-all
+          uri: ${BFF_SERVICE_URL:http://securescore-bff:4000}
+          predicates:
+            - Path=/api/**
+          filters:
+            - AddRequestHeader=X-Gateway-Source, securescore-gateway
+
+      # ── Global CORS ─────────────────────────────────────────────────────────
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin RETAIN_FIRST
+        - DedupeResponseHeader=Access-Control-Allow-Credentials RETAIN_FIRST
+
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+            maxAge: 3600
+
+      # ── HTTP client timeouts ────────────────────────────────────────────────
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 30s
+        pool:
+          max-connections: 500
+
+# ── JWT — RS256 public key (same key pair as java-auth / Go auth service) ─────
+gateway:
+  jwt:
+    public-key-path: ${JWT_PUBLIC_KEY_PATH:/secrets/jwt_public.pem}
+    issuer: ${JWT_ISSUER:securescore-auth}
+    audience: ${JWT_AUDIENCE:securescore-api}
+
+# ── Actuator ───────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+logging:
+  level:
+    com.securescore.gateway: INFO
+    org.springframework.cloud.gateway: WARN
+    reactor.netty: WARN

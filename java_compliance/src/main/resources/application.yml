@@ -1,0 +1,85 @@
+server:
+  port: ${SERVER_PORT:9000}
+
+spring:
+  application:
+    name: securescore-compliance
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/securescore_compliance}
+    username: ${SPRING_DATASOURCE_USERNAME:compliance_svc}
+    password: ${SPRING_DATASOURCE_PASSWORD:demo_compliance_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
+    consumer:
+      group-id: compliance-engine
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        max.poll.records: 50
+        session.timeout.ms: 30000
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+compliance:
+  grpc:
+    ai-addr: ${AI_GRPC_ADDR:localhost:50051}
+    timeout-seconds: 3
+    enabled: ${AI_GRPC_ENABLED:true}
+  kafka:
+    topics:
+      transactions: ${KAFKA_TOPIC_TRANSACTIONS:banking.transactions}
+      loans: ${KAFKA_TOPIC_LOANS:banking.loans}
+      risk-flags: ${KAFKA_TOPIC_RISK_FLAGS:ai.risk.flags}
+      decisions: ${KAFKA_TOPIC_DECISIONS:compliance.decisions}
+  reports:
+    output-dir: ${REPORTS_OUTPUT_DIR:/tmp/compliance-reports}
+  rules:
+    nrb-large-cash-threshold: ${NRB_LARGE_CASH_THRESHOLD:1000000}
+    nrb-cross-border-threshold: ${NRB_CROSS_BORDER_THRESHOLD:500000}
+    fraud-flag-threshold: ${FRAUD_FLAG_THRESHOLD:0.75}
+    fraud-block-threshold: ${FRAUD_BLOCK_THRESHOLD:0.90}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.securescore.compliance: INFO
+    org.springframework.kafka: WARN
+    io.grpc: WARN
