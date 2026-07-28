@@ -1,0 +1,596 @@
+# ═══════════════════════════════════════════════════════════
+#  SecureScore — Federated Credit-Scoring Network (Compose)
+#  Production-grade: non-root, read-only FS, no-new-privileges
+#  Includes: HQ, BFF, 13 Edge Nodes, PostgreSQL, Prometheus,
+#            Grafana, pgAdmin, MLflow
+# ═══════════════════════════════════════════════════════════
+#
+#  Full system (all 13 edges):
+#    docker compose --profile edges up --build
+#
+#  Core only (HQ + BFF + monitoring):
+#    docker compose up --build
+#
+#  HQ + Dashboard only:
+#    docker compose up --build hq-server hq-dashboard
+#
+# ═══════════════════════════════════════════════════════════
+
+x-edge-defaults: &edge-defaults
+  build:
+    context: .
+    dockerfile: Dockerfile.edge
+  env_file:
+    - .env
+  environment:
+    - HQ_URL=http://hq-server:5050
+  volumes:
+    - ./certs:/app/certs:ro
+    - ./generated_data:/app/generated_data:ro
+  read_only: true
+  tmpfs:
+    - /tmp/edge:noexec,nosuid,size=256m
+    # edge_node.py writes model state / cache here; rootfs is read-only and the
+    # edge runs as a non-root user, so give it writable tmpfs (mode=1777).
+    - /app/edge_state:noexec,nosuid,size=128m,mode=1777
+    - /app/edge_data:noexec,nosuid,size=128m,mode=1777
+    - /app/edge_logs:noexec,nosuid,size=64m,mode=1777
+    - /app/.ml_cache:noexec,nosuid,size=256m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  depends_on:
+    hq-server:
+      condition: service_healthy
+    data-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+  profiles:
+    - edges
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fs http://localhost:$$EDGE_PORT/api/health || exit 1"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 40s
+
+services:
+  # ── Synthetic branch data generator (one-shot) ──────────
+  # Edge nodes train on generated_data/data_branch_*.csv. Runs once against
+  # the bind-mounted repo so the CSVs persist on the host and are reused on
+  # every subsequent `docker compose up` without needing a custom image.
+  data-init:
+    image: python:3.13-slim
+    container_name: securescore-data-init
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: ["sh", "-c", "test -f generated_data/data_branch_kathmandu.csv && echo 'generated_data already present' || (pip install --no-cache-dir --quiet pandas numpy && python generate_data.py)"]
+    restart: "no"
+
+  # ── PostgreSQL Database ─────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: securescore-postgres
+    environment:
+      POSTGRES_DB: securescore
+      POSTGRES_USER: securescore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securescore_dev_password}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securescore -d securescore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # ── HQ Aggregation Server (FastAPI) ────────────────────
+  hq-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securescore-hq
+    ports:
+      - "5050:5050"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://securescore:${POSTGRES_PASSWORD:-securescore_dev_password}@postgres:5432/securescore
+    volumes:
+      - ./hq_state:/app/hq_state
+      - ./certs:/app/certs:ro
+    read_only: true
+    tmpfs:
+      - /tmp/hq:noexec,nosuid,size=256m
+      # HQ opens a FileHandler at /app/edge_logs/hq_server.log on startup; the
+      # rootfs is read-only, so give it a writable tmpfs. mode=1777 because the
+      # HQ image runs as a non-root user (stdout is the real log anyway).
+      - /app/edge_logs:noexec,nosuid,size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # --no-mtls: HQ serves plain HTTP so the Go BFF and the healthcheck can reach
+    # it over the compose network. (mTLS auto-enables when certs are mounted; for a
+    # multi-container demo every caller would need a client cert, so disable it.)
+    command: ["--port", "5050", "--min-nodes", "3", "--round-interval", "60", "--no-mtls"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; r=requests.get('http://localhost:5050/api/health'); exit(0 if r.status_code==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── BFF Gateway ────────────────────────────────────────
+  bff-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.bff
+    container_name: securescore-bff
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - HQ_URL=http://hq-server:5050
+      - DATABASE_URL=sqlite:///./data/securescore.db
+      # Reach edges over the compose network (service DNS). Without these the BFF
+      # falls back to 127.0.0.1:<hash>, which inside this container is itself.
+      - EDGE_URL_KATHMANDU=http://edge-kathmandu:7050
+      - EDGE_URL_LALITPUR=http://edge-lalitpur:7051
+      - EDGE_URL_POKHARA=http://edge-pokhara:7257
+      - EDGE_URL_BHARATPUR=http://edge-bharatpur:7052
+      - EDGE_URL_BIRATNAGAR=http://edge-biratnagar:7053
+      - EDGE_URL_BUTWAL=http://edge-butwal:7054
+      - EDGE_URL_HETAUDA=http://edge-hetauda:7055
+      - EDGE_URL_ITAHARI=http://edge-itahari:7056
+      - EDGE_URL_DHARAN=http://edge-dharan:7057
+      - EDGE_URL_JANAKPUR=http://edge-janakpur:7058
+      - EDGE_URL_BIRGUNJ=http://edge-birgunj:7059
+      - EDGE_URL_NEPALGUNJ=http://edge-nepalgunj:7060
+      - EDGE_URL_SARLAHI=http://edge-sarlahi:7115
+    volumes:
+      - bff_data:/app/data
+    depends_on:
+      hq-server:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp/bff:noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── MLflow Experiment Tracking ─────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    container_name: securescore-mlflow
+    ports:
+      - "5001:5000"
+    # SQLite backend: the official mlflow image ships without psycopg2, so the
+    # Postgres backend store crash-loops. SQLite in the artifacts volume is plenty
+    # for demo experiment tracking.
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:////mlflow/artifacts/mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlflow/artifacts
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    command: >
+      mlflow server
+        --backend-store-uri sqlite:////mlflow/artifacts/mlflow.db
+        --default-artifact-root /mlflow/artifacts
+        --host 0.0.0.0
+        --port 5000
+    restart: unless-stopped
+
+  # ── Prometheus Metrics ─────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: securescore-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # ── Grafana Dashboards ────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: securescore-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-securescore_grafana}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ── PostgreSQL Exporter (for Grafana) ─────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: securescore-pg-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://securescore:${POSTGRES_PASSWORD:-securescore_dev_password}@postgres:5432/securescore?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend (Next.js) ────────────────────────────────
+  # NEXT_PUBLIC_BFF_URL is baked into the client bundle at build time and is
+  # fetched directly from the browser, so it must be the host-published BFF
+  # URL (localhost:4000) — not the internal "bff-gateway" docker DNS name,
+  # which only resolves inside the compose network.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BFF_URL: http://localhost:4000
+    container_name: securescore-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - bff-gateway
+    restart: unless-stopped
+    # Override the image healthcheck to probe IPv4 (the standalone server binds
+    # IPv4; localhost can resolve to ::1 and falsely report unhealthy).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════
+  #  EDGE NODES — All 13 Branches
+  #  Start with: docker compose --profile edges up
+  # ═══════════════════════════════════════════════════════
+
+  # Kathmandu, Pokhara, Sarlahi start by default (no profile) — they're the
+  # 3 branches the BFF, frontend demo data, and HOWTORUN.md are wired for.
+  # The other 10 branches are opt-in via `docker compose --profile edges up`.
+  edge-kathmandu:
+    <<: *edge-defaults
+    container_name: securescore-edge-kathmandu
+    profiles: []
+    environment:
+      - BRANCH_NAME=Kathmandu
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7050
+    ports:
+      - "7050:7050"
+
+  edge-lalitpur:
+    <<: *edge-defaults
+    container_name: securescore-edge-lalitpur
+    environment:
+      - BRANCH_NAME=Lalitpur
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7051
+    ports:
+      - "7051:7050"
+
+  edge-pokhara:
+    <<: *edge-defaults
+    container_name: securescore-edge-pokhara
+    profiles: []
+    environment:
+      - BRANCH_NAME=Pokhara
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7257
+    ports:
+      - "7257:7257"
+
+  edge-bharatpur:
+    <<: *edge-defaults
+    container_name: securescore-edge-bharatpur
+    environment:
+      - BRANCH_NAME=Bharatpur
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7052
+    ports:
+      - "7052:7050"
+
+  edge-biratnagar:
+    <<: *edge-defaults
+    container_name: securescore-edge-biratnagar
+    environment:
+      - BRANCH_NAME=Biratnagar
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7053
+    ports:
+      - "7053:7050"
+
+  edge-butwal:
+    <<: *edge-defaults
+    container_name: securescore-edge-butwal
+    environment:
+      - BRANCH_NAME=Butwal
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7054
+    ports:
+      - "7054:7050"
+
+  edge-hetauda:
+    <<: *edge-defaults
+    container_name: securescore-edge-hetauda
+    environment:
+      - BRANCH_NAME=Hetauda
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7055
+    ports:
+      - "7055:7050"
+
+  edge-itahari:
+    <<: *edge-defaults
+    container_name: securescore-edge-itahari
+    environment:
+      - BRANCH_NAME=Itahari
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7056
+    ports:
+      - "7056:7050"
+
+  edge-dharan:
+    <<: *edge-defaults
+    container_name: securescore-edge-dharan
+    environment:
+      - BRANCH_NAME=Dharan
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7057
+    ports:
+      - "7057:7050"
+
+  edge-janakpur:
+    <<: *edge-defaults
+    container_name: securescore-edge-janakpur
+    environment:
+      - BRANCH_NAME=Janakpur
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7058
+    ports:
+      - "7058:7050"
+
+  edge-birgunj:
+    <<: *edge-defaults
+    container_name: securescore-edge-birgunj
+    environment:
+      - BRANCH_NAME=Birgunj
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7059
+    ports:
+      - "7059:7050"
+
+  edge-nepalgunj:
+    <<: *edge-defaults
+    container_name: securescore-edge-nepalgunj
+    environment:
+      - BRANCH_NAME=Nepalgunj
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7060
+    ports:
+      - "7060:7050"
+
+  edge-sarlahi:
+    <<: *edge-defaults
+    container_name: securescore-edge-sarlahi
+    profiles: []
+    environment:
+      - BRANCH_NAME=Sarlahi
+      - HQ_URL=http://hq-server:5050
+      - EDGE_PORT=7115
+    ports:
+      - "7115:7115"
+
+  # ═══════════════════════════════════════════════════════
+  #  MICROSERVICES — Decomposed HQ Components
+  # ═══════════════════════════════════════════════════════
+
+  svc-aggregation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securescore-svc-aggregation
+    ports:
+      - "5050:5050"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://securescore:${POSTGRES_PASSWORD:-securescore_dev_password}@postgres:5432/securescore
+    volumes:
+      - ./hq_state:/app/hq_state
+      - ./certs:/app/certs:ro
+    command: ["python", "-m", "uvicorn", "services.aggregation.main:app", "--host", "0.0.0.0", "--port", "5050"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5050/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - microservices
+
+  svc-model-registry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securescore-svc-model-registry
+    ports:
+      - "5051:5051"
+    env_file:
+      - .env
+    volumes:
+      - ./hq_state:/app/hq_state:ro
+    command: ["python", "-m", "uvicorn", "services.model_registry.main:app", "--host", "0.0.0.0", "--port", "5051"]
+    depends_on:
+      svc-aggregation:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5051/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - microservices
+
+  svc-audit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securescore-svc-audit
+    ports:
+      - "5052:5052"
+    env_file:
+      - .env
+    volumes:
+      - ./hq_state:/app/hq_state
+    command: ["python", "-m", "uvicorn", "services.audit.main:app", "--host", "0.0.0.0", "--port", "5052"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5052/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - microservices
+
+  svc-federation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securescore-svc-federation
+    ports:
+      - "5053:5053"
+    env_file:
+      - .env
+    command: ["python", "-m", "uvicorn", "services.federation.main:app", "--host", "0.0.0.0", "--port", "5053"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5053/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - microservices
+
+  svc-compliance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securescore-svc-compliance
+    ports:
+      - "5054:5054"
+    env_file:
+      - .env
+    command: ["python", "-m", "uvicorn", "services.compliance.main:app", "--host", "0.0.0.0", "--port", "5054"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5054/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - microservices
+
+  # ═══════════════════════════════════════════════════════
+  #  OBSERVABILITY — Distributed Tracing + Log Aggregation
+  # ═══════════════════════════════════════════════════════
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    container_name: securescore-jaeger
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: securescore-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: securescore-promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - promtail_positions:/tmp/positions
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  bff_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  mlflow_artifacts:
+    driver: local
+  loki_data:
+    driver: local
+  promtail_positions:
+    driver: local
+
+networks:
+  default:
+    name: securescore-network
+    driver: bridge
