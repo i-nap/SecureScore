@@ -1,0 +1,10 @@
+# Branch Service (spec) dependencies
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+httpx>=0.27.0
+pydantic>=2.7.0
+numpy>=1.26,<2.0  # torch 2.2.x needs NumPy 1.x
+scikit-learn>=1.4.0
+xgboost>=2.1,<3.1  # 3.1+ base_score serialization breaks shap 0.49 TreeExplainer
+torch>=2.1.0
+sqlalchemy>=2.0.0

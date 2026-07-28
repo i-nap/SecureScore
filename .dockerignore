@@ -1,0 +1,35 @@
+# ═══════════════════════════════════════════════════════════
+#  Docker build context — ignore these
+# ═══════════════════════════════════════════════════════════
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Data (not needed in HQ container)
+datasets/
+generated_data/
+stress_analyze/
+extras/
+
+# Edge node artifacts
+edge_state/
+edge_logs/
+
+# Misc
+.git/
+.gitignore
+*.md
+*.ipynb
+crash_log.txt
+centralized_baseline.py
+generate_data.py
+bank_app.py
+
+# IDE
+.vscode/
+.idea/

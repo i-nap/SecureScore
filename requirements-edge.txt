@@ -1,0 +1,25 @@
+# ═══════════════════════════════════════════════════════════
+#  SecureScore Edge Node — Python dependencies (Docker image)
+# ═══════════════════════════════════════════════════════════
+xgboost>=2.1,<3.1  # 3.1+ serializes base_score as '[5.69E-1]'; shap 0.49 TreeExplainer can't parse it → /api/explain 500s
+numpy>=1.26,<2.0  # torch 2.2.x is ABI-incompatible with NumPy 2.x
+pandas>=2.1,<3.0
+scikit-learn>=1.4,<2.0
+shap>=0.45,<1.0
+requests>=2.31,<3.0
+flask>=3.0,<4.0
+python-dotenv>=1.0,<2.0
+torch>=2.1.0
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.0,<3.0
+# On-device OCR stack (cheque + handwriting). easyocr does text detection;
+# transformers/TrOCR does handwriting recognition. First handwriting run
+# downloads ~330MB (microsoft/trocr-base-handwritten). Pillow for preprocessing.
+easyocr>=1.7,<2.0
+Pillow>=10.0,<12.0
+transformers>=4.40,<5.0
+
+# Required by edge_api.py /api/ocr/cheque (multipart file upload) — FastAPI raises at
+# import without it, which crashes the edge on startup.
+python-multipart>=0.0.9

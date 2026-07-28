@@ -1,0 +1,48 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Node / Next.js
+node_modules/
+.next/
+
+# Java build output
+target/
+*.class
+*.jar
+
+# Go compiled binaries
+*.exe
+go_bff/bff
+go_bff/securescore.db*
+
+# Databases / runtime state (regenerated on run)
+securescore.db
+securescore.db-shm
+securescore.db-wal
+hq_state/
+edge_state/
+branch_state/
+edge_logs/
+
+# Secrets & certs (regenerate via generate_certs.py)
+.env
+.env.*
+!.env.example
+certs/
+secrets/
+
+# OS / misc
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.xlsx
+*.csv
+*.xls
+.rtk/
+.launch_pids
+baseline_results/

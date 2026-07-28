@@ -1,0 +1,10 @@
+xgboost>=2.1,<3.1  # 3.1+ base_score serialization breaks shap 0.49 TreeExplainer
+numpy>=1.26,<2.0  # torch 2.2.x is ABI-incompatible with NumPy 2.x
+pandas>=2.1,<3.0
+scikit-learn>=1.4,<2.0
+psutil>=5.9,<7.0
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+python-dotenv>=1.0,<2.0
+requests>=2.31,<3.0
+httpx>=0.27,<1.0
