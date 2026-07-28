@@ -1,0 +1,19 @@
+[Unit]
+Description=SecureScore Pi Edge Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=securescore
+EnvironmentFile=/etc/securescore/pi.env
+EnvironmentFile=-/etc/securescore/discovered.env
+ExecStartPre=/opt/securescore/pi_edge/discover_hq.sh
+ExecStart=/opt/securescore/venv/bin/python /opt/securescore/pi_edge/pi_api.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

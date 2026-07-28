@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+# libgomp1 is required for XGBoost multi-threading on ARM64
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-pi.txt .
+RUN pip install --no-cache-dir -r requirements-pi.txt
+
+COPY edge_node.py .
+COPY generate_data.py .
+COPY pi_edge/ ./pi_edge/
+COPY models/ ./models/
+
+ENV BRANCH_NAME=kathmandu
+ENV HQ_BRANCH_API_KEY=changeme
+ENV EDGE_PORT=7050
+ENV HQ_URL=http://hq:5050
+
+CMD ["python", "pi_edge/pi_api.py"]
