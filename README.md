@@ -203,21 +203,3 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 ---
-
-## Documentation Index
-
-| Document | Contents |
-|---|---|
-| [HOWTORUN.md](HOWTORUN.md) | Complete setup and run guide |
-| [docs/architecture.md](docs/architecture.md) | System architecture and data flow |
-| [docs/api.md](docs/api.md) | API reference for all endpoints |
-| [docs/security.md](docs/security.md) | Security model and controls |
-| [docs/data.md](docs/data.md) | Dataset generation and structure |
-| [docs/testing.md](docs/testing.md) | Test suite and load testing |
-| [docs/observability.md](docs/observability.md) | Metrics, tracing, logging |
-| [docs/deployment/local.md](docs/deployment/local.md) | Local development setup |
-| [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md) | Docker Compose deployment |
-| [docs/deployment/kubernetes.md](docs/deployment/kubernetes.md) | Kubernetes / Helm deployment |
-| [docs/secrets-management.md](docs/secrets-management.md) | Vault, AWS SM, Azure KV |
-| [STRIDE_THREAT_MODEL.md](STRIDE_THREAT_MODEL.md) | STRIDE threat model |
-| [graph_definition.md](graph_definition.md) | System graph definition |
