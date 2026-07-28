@@ -1,0 +1,56 @@
+syntax = "proto3";
+package banking.events.v1;
+option go_package = "github.com/securescore/banking/internal/kafka/events;events";
+import "google/protobuf/timestamp.proto";
+
+message TransactionEvent {
+  string transaction_id = 1;
+  string idempotency_key = 2;
+  string type = 3;
+  string status = 4;
+  string source_account_id = 5;
+  string dest_account_id = 6;
+  string amount = 7;
+  string currency = 8;
+  string initiator_id = 9;
+  string initiator_role = 10;
+  string channel = 11;
+  string reference_number = 12;
+  google.protobuf.Timestamp completed_at = 13;
+}
+
+message LoanStateChangeEvent {
+  string loan_id = 1;
+  string loan_number = 2;
+  string customer_id = 3;
+  string from_status = 4;
+  string to_status = 5;
+  string actor_id = 6;
+  string actor_role = 7;
+  string amount = 8;
+  google.protobuf.Timestamp changed_at = 9;
+}
+
+message FDEvent {
+  string fd_id = 1;
+  string fd_number = 2;
+  string customer_id = 3;
+  string event_type = 4;
+  string principal = 5;
+  string maturity_amount = 6;
+  string interest_rate = 7;
+  string maturity_date = 8;
+  google.protobuf.Timestamp event_at = 9;
+}
+
+message AuditEvent {
+  string event_id = 1;
+  string event_type = 2;
+  string entity_type = 3;
+  string entity_id = 4;
+  string actor_id = 5;
+  string actor_role = 6;
+  string before_state = 7;
+  string after_state = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
