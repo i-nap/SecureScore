@@ -1,0 +1,18 @@
+# ZAP scan rules — SecureScore Bank Suite
+# Format: rule_id	IGNORE|WARN|FAIL	description
+# Reference: https://www.zaproxy.org/docs/alerts/
+
+# Ignore informational alerts
+10015	IGNORE	Incomplete or No Cache-control Header
+10027	IGNORE	Information Disclosure - Suspicious Comments
+10096	IGNORE	Timestamp Disclosure - Unix
+10020	WARN	X-Frame-Options Header Not Set (we set DENY in middleware)
+10021	WARN	X-Content-Type-Options Header Missing
+
+# Fail on critical findings
+90019	FAIL	Server Side Code Injection
+90020	FAIL	Remote OS Command Injection
+40012	FAIL	Cross Site Scripting (Reflected)
+40014	FAIL	Cross Site Scripting (Persistent)
+40018	FAIL	SQL Injection
+90018	FAIL	SQL Injection (Hypersonic SQL)
